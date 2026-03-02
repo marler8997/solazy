@@ -8,20 +8,28 @@ Lazy shared libraries.
 # Example Usage
 
 ```zig
-pub fn main() void {
-    c.foo();
-    c.bar(0);
-}
-
+const std = @import("std");
 const solazy = @import("solazy");
-const c = solazy.namespace(.panic, &.{
-    .{ .lib = "mylib", .name = "foo", .Fn = fn () callconv(.c) void },
-    .{ .lib = "mylib", .name = "bar", .Fn = fn (i32) callconv(.c) void },
+
+const rl = solazy.namespace(.panic, &.{
+    .{ .lib = "raylib", .name = "InitWindow", .Fn = fn (i32, i32, [*:0]const u8) callconv(.c) void },
+    .{ .lib = "raylib", .name = "WindowShouldClose", .Fn = fn () callconv(.c) bool },
+    .{ .lib = "raylib", .name = "ClearBackground", .Fn = fn (u32) callconv(.c) void },
+    .{ .lib = "raylib", .name = "BeginDrawing", .Fn = fn () callconv(.c) void },
+    .{ .lib = "raylib", .name = "EndDrawing", .Fn = fn () callconv(.c) void },
+    .{ .lib = "raylib", .name = "CloseWindow", .Fn = fn () callconv(.c) void },
 });
 
-const std = @import("std");
+pub fn main() void {
+    rl.InitWindow(800, 450, "solazy example");
+    while (!rl.WindowShouldClose()) {
+        rl.BeginDrawing();
+        rl.ClearBackground(0xf5f5f5ff);
+        rl.EndDrawing();
+    }
+    rl.CloseWindow();
+}
 ```
-
 
 
 The example above is configured to panic on missing libraries/functions, but you can also provide your own fallback:
