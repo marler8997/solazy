@@ -17,9 +17,22 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
-    // test_so.use_llvm = true;
+
     const install_test_so = b.addInstallArtifact(test_so, .{});
     b.step("install-test-so", "").dependOn(&install_test_so.step);
+
+    const test2_so = b.addLibrary(.{
+        .name = "test2",
+        .linkage = .dynamic,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("test/test2so.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+
+    const install_test2_so = b.addInstallArtifact(test2_so, .{});
+    b.step("install-test2-so", "").dependOn(&install_test2_so.step);
 
     const test_step = b.step("test", "");
 
@@ -29,6 +42,7 @@ pub fn build(b: *std.Build) void {
         options.addOption(bool, "lazy", lazy);
         if (lazy) {
             options.addOptionPath("testso", test_so.getEmittedBin());
+            options.addOptionPath("test2so", test2_so.getEmittedBin());
         }
         const exe = b.addExecutable(.{
             .name = "test" ++ suffix,
@@ -51,8 +65,10 @@ pub fn build(b: *std.Build) void {
             }
         }
         exe.linkLibrary(test_so);
+        exe.linkLibrary(test2_so);
         if (target.result.os.tag == .windows) {
             exe.addLibraryPath(test_so.getEmittedBinDirectory());
+            exe.addLibraryPath(test2_so.getEmittedBinDirectory());
         }
 
         const install = b.addInstallArtifact(exe, .{});
@@ -61,6 +77,7 @@ pub fn build(b: *std.Build) void {
         const run = b.addRunArtifact(exe);
         run.step.dependOn(&install.step);
         run.step.dependOn(&install_test_so.step);
+        run.step.dependOn(&install_test2_so.step);
         run.expectExitCode(0);
         b.step("test" ++ suffix, "").dependOn(&run.step);
         test_step.dependOn(&run.step);

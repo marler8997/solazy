@@ -18,6 +18,10 @@ pub fn main() !void {
     c.foo();
     std.log.info("foo returned", .{});
 
+    std.log.info("calling foo2 (first time)...", .{});
+    c.foo2();
+    std.log.info("foo2 returned", .{});
+
     std.log.info("calling bar...", .{});
     c.bar();
     std.log.info("bar returned", .{});
@@ -60,8 +64,9 @@ pub fn main() !void {
     std.debug.assert(16 == c.args16(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15));
 }
 
-const testso = struct {
+const dynamic = struct {
     extern "test" fn foo() callconv(.c) void;
+    extern "test2" fn foo2() callconv(.c) void;
     extern "test" fn bar() callconv(.c) void;
     extern "test" fn theanswer() callconv(.c) i32;
     extern "test" fn printi32(i32) callconv(.c) void;
@@ -92,35 +97,37 @@ pub fn nullterm(comptime s: []const u8) [s.len:0]u8 {
     return buf;
 }
 const testso_lib = nullterm(build_options.testso);
+const test2so_lib = nullterm(build_options.test2so);
 
 const solazy = @import("solazy");
 
 const solazy_funcs = [_]solazy.Func{
-    .{ .lib = &testso_lib, .name = "foo", .Fn = @TypeOf(testso.foo) },
-    .{ .lib = &testso_lib, .name = "bar", .Fn = @TypeOf(testso.bar) },
-    .{ .lib = &testso_lib, .name = "theanswer", .Fn = @TypeOf(testso.theanswer) },
-    .{ .lib = &testso_lib, .name = "printi32", .Fn = @TypeOf(testso.printi32) },
-    .{ .lib = &testso_lib, .name = "echoi32", .Fn = @TypeOf(testso.echoi32) },
-    .{ .lib = &testso_lib, .name = "args0", .Fn = @TypeOf(testso.args0) },
-    .{ .lib = &testso_lib, .name = "args1", .Fn = @TypeOf(testso.args1) },
-    .{ .lib = &testso_lib, .name = "args2", .Fn = @TypeOf(testso.args2) },
-    .{ .lib = &testso_lib, .name = "args3", .Fn = @TypeOf(testso.args3) },
-    .{ .lib = &testso_lib, .name = "args4", .Fn = @TypeOf(testso.args4) },
-    .{ .lib = &testso_lib, .name = "args5", .Fn = @TypeOf(testso.args5) },
-    .{ .lib = &testso_lib, .name = "args6", .Fn = @TypeOf(testso.args6) },
-    .{ .lib = &testso_lib, .name = "args7", .Fn = @TypeOf(testso.args7) },
-    .{ .lib = &testso_lib, .name = "args8", .Fn = @TypeOf(testso.args8) },
-    .{ .lib = &testso_lib, .name = "args9", .Fn = @TypeOf(testso.args9) },
-    .{ .lib = &testso_lib, .name = "args10", .Fn = @TypeOf(testso.args10) },
-    .{ .lib = &testso_lib, .name = "args11", .Fn = @TypeOf(testso.args11) },
-    .{ .lib = &testso_lib, .name = "args12", .Fn = @TypeOf(testso.args12) },
-    .{ .lib = &testso_lib, .name = "args13", .Fn = @TypeOf(testso.args13) },
-    .{ .lib = &testso_lib, .name = "args14", .Fn = @TypeOf(testso.args14) },
-    .{ .lib = &testso_lib, .name = "args15", .Fn = @TypeOf(testso.args15) },
-    .{ .lib = &testso_lib, .name = "args16", .Fn = @TypeOf(testso.args16) },
+    .{ .lib = &testso_lib, .name = "foo", .Fn = @TypeOf(dynamic.foo) },
+    .{ .lib = &test2so_lib, .name = "foo2", .Fn = @TypeOf(dynamic.foo2) },
+    .{ .lib = &testso_lib, .name = "bar", .Fn = @TypeOf(dynamic.bar) },
+    .{ .lib = &testso_lib, .name = "theanswer", .Fn = @TypeOf(dynamic.theanswer) },
+    .{ .lib = &testso_lib, .name = "printi32", .Fn = @TypeOf(dynamic.printi32) },
+    .{ .lib = &testso_lib, .name = "echoi32", .Fn = @TypeOf(dynamic.echoi32) },
+    .{ .lib = &testso_lib, .name = "args0", .Fn = @TypeOf(dynamic.args0) },
+    .{ .lib = &testso_lib, .name = "args1", .Fn = @TypeOf(dynamic.args1) },
+    .{ .lib = &testso_lib, .name = "args2", .Fn = @TypeOf(dynamic.args2) },
+    .{ .lib = &testso_lib, .name = "args3", .Fn = @TypeOf(dynamic.args3) },
+    .{ .lib = &testso_lib, .name = "args4", .Fn = @TypeOf(dynamic.args4) },
+    .{ .lib = &testso_lib, .name = "args5", .Fn = @TypeOf(dynamic.args5) },
+    .{ .lib = &testso_lib, .name = "args6", .Fn = @TypeOf(dynamic.args6) },
+    .{ .lib = &testso_lib, .name = "args7", .Fn = @TypeOf(dynamic.args7) },
+    .{ .lib = &testso_lib, .name = "args8", .Fn = @TypeOf(dynamic.args8) },
+    .{ .lib = &testso_lib, .name = "args9", .Fn = @TypeOf(dynamic.args9) },
+    .{ .lib = &testso_lib, .name = "args10", .Fn = @TypeOf(dynamic.args10) },
+    .{ .lib = &testso_lib, .name = "args11", .Fn = @TypeOf(dynamic.args11) },
+    .{ .lib = &testso_lib, .name = "args12", .Fn = @TypeOf(dynamic.args12) },
+    .{ .lib = &testso_lib, .name = "args13", .Fn = @TypeOf(dynamic.args13) },
+    .{ .lib = &testso_lib, .name = "args14", .Fn = @TypeOf(dynamic.args14) },
+    .{ .lib = &testso_lib, .name = "args15", .Fn = @TypeOf(dynamic.args15) },
+    .{ .lib = &testso_lib, .name = "args16", .Fn = @TypeOf(dynamic.args16) },
 };
 
-const c = if (!build_options.lazy) testso else solazy.namespace(on_solazy_error, &solazy_funcs);
+const c = if (!build_options.lazy) dynamic else solazy.namespace(on_solazy_error, &solazy_funcs);
 
 fn on_solazy_error(
     kind: solazy.ErrorKind,

@@ -86,7 +86,7 @@ fn resolve(
     func: [:0]const u8,
     on_err: OnError,
 ) *const anyopaque {
-    const lib_handle = cachedDlopen(lib) orelse on_err(.lib, lib, func);
+    const lib_handle = LibStorage(lib).open() orelse on_err(.lib, lib, func);
     const load_func_name, const load_func = switch (builtin.os.tag) {
         .windows => .{ "GetProcAddress", std.os.windows.kernel32.GetProcAddress },
         else => .{ "dlsym", os.dlsym },
@@ -100,34 +100,38 @@ const LibHandle = switch (builtin.os.tag) {
     else => *anyopaque,
 };
 
-pub fn cachedDlopen(comptime lib: [:0]const u8) ?LibHandle {
-    const S = struct {
-        var handle: std.atomic.Value(?LibHandle) = .{ .raw = null };
-    };
-    if (S.handle.load(.acquire)) |h| return h;
-    const load_func_name = switch (builtin.os.tag) {
-        .windows => "LoadLibrary",
-        else => "dlopen",
-    };
-    log.debug(load_func_name ++ " '{s}'", .{lib});
-    if (builtin.os.tag == .windows) {
-        const handle = os.LoadLibraryA(lib) orelse return null;
-        if (S.handle.cmpxchgStrong(null, handle, .release, .acquire)) |existing| {
-            const r = std.os.windows.kernel32.FreeLibrary(handle);
-            std.debug.assert(r != 0);
-            return existing;
+fn LibStorage(comptime lib: [:0]const u8) type {
+    return struct {
+        var global_handle: std.atomic.Value(?LibHandle) = .{ .raw = null };
+
+        pub fn open() ?LibHandle {
+            if (global_handle.load(.acquire)) |h| return h;
+            const load_func_name = switch (builtin.os.tag) {
+                .windows => "LoadLibrary",
+                else => "dlopen",
+            };
+            log.debug(load_func_name ++ " '{s}'", .{lib});
+            const h = switch (builtin.os.tag) {
+                .windows => os.LoadLibraryA(lib) orelse return null,
+                else => os.dlopen(lib, .{ .LAZY = true }) orelse return null,
+            };
+            if (global_handle.cmpxchgStrong(null, h, .release, .acquire)) |existing| {
+                switch (builtin.os.tag) {
+                    .windows => {
+                        const r = std.os.windows.kernel32.FreeLibrary(h);
+                        std.debug.assert(r != 0);
+                    },
+                    else => {
+                        // Another thread won the race — drop our redundant refcount.
+                        const result = os.dlclose(h);
+                        std.debug.assert(result == 0);
+                    },
+                }
+                return existing;
+            }
+            return h;
         }
-        return handle;
-    } else {
-        const h = os.dlopen(lib, .{ .LAZY = true }) orelse return null;
-        if (S.handle.cmpxchgStrong(null, h, .release, .acquire)) |existing| {
-            // Another thread won the race — drop our redundant refcount.
-            const result = os.dlclose(h);
-            std.debug.assert(result == 0);
-            return existing;
-        }
-        return h;
-    }
+    };
 }
 
 pub const ErrorKind = enum { lib, sym };
