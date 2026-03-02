@@ -81,18 +81,47 @@ pub const Func = struct {
     Fn: type,
 };
 
+pub fn defaultPanic(
+    kind: ErrorKind,
+    lib: [:0]const u8,
+    func: [:0]const u8,
+) *const anyopaque {
+    switch (kind) {
+        .lib => std.debug.panic(
+            "load library '{s}' failed, error={f}",
+            .{ lib, libError() },
+        ),
+        .sym => std.debug.panic(
+            "load symbol '{s}' from library '{s}' failed, error={f}",
+            .{ func, lib, symError() },
+        ),
+    }
+}
+
+pub const ErrorKind = enum { lib, sym };
+
+pub const OnError = struct {
+    func: fn (
+        kind: ErrorKind,
+        lib: [:0]const u8,
+        func: [:0]const u8,
+    ) *const anyopaque,
+
+    pub const panic: OnError = .{ .func = defaultPanic };
+};
+
 fn resolve(
     comptime lib: [:0]const u8,
     func: [:0]const u8,
-    on_err: OnError,
+    comptime on_err: OnError,
 ) *const anyopaque {
-    const lib_handle = LibStorage(lib).open() orelse on_err(.lib, lib, func);
+    const lib_handle = LibStorage(lib).open() orelse return on_err.func(.lib, lib, func);
     const load_func_name, const load_func = switch (builtin.os.tag) {
         .windows => .{ "GetProcAddress", std.os.windows.kernel32.GetProcAddress },
         else => .{ "dlsym", os.dlsym },
     };
     log.debug(load_func_name ++ " '{s}'", .{func});
-    return load_func(lib_handle, func) orelse on_err(.sym, lib, func);
+    return load_func(lib_handle, func) orelse return on_err.func(.sym, lib, func);
 }
 
 const LibHandle = switch (builtin.os.tag) {
@@ -133,16 +162,6 @@ fn LibStorage(comptime lib: [:0]const u8) type {
         }
     };
 }
-
-pub const ErrorKind = enum { lib, sym };
-
-// TODO: change this to a vtable, one for each return type
-//       so the caller can choose to return
-pub const OnError = fn (
-    kind: ErrorKind,
-    lib: [:0]const u8,
-    func: [:0]const u8,
-) noreturn;
 
 fn ThunkFn(comptime Fn: type, comptime cc_override: ?std.builtin.CallingConvention) type {
     const info = @typeInfo(Fn).@"fn";
@@ -271,7 +290,7 @@ pub const Error = struct {
 pub fn libError() Error {
     return switch (builtin.os.tag) {
         .windows => .{ .data = @intFromEnum(std.os.windows.GetLastError()) },
-        else => .{ .data = null },
+        else => .{ .data = os.dlerror() },
     };
 }
 

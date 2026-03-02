@@ -1,17 +1,17 @@
 pub fn main() !void {
     std.log.info("@typeName(@TypeOf(c.foo)) is {s}", .{@typeName(@TypeOf(c.foo))});
     if (build_options.lazy) {
-        std.log.info("foo at 0x{x}", .{@intFromPtr(solazy.globalFunctionRef(on_solazy_error, &solazy_funcs, "foo").load(.acquire))});
+        std.log.info("foo at 0x{x}", .{@intFromPtr(solazy.globalFunctionRef(.panic, &solazy_funcs, "foo").load(.acquire))});
     }
-    const foo_before = if (build_options.lazy) solazy.globalFunctionRef(on_solazy_error, &solazy_funcs, "foo").load(.acquire) else 0;
+    const foo_before = if (build_options.lazy) solazy.globalFunctionRef(.panic, &solazy_funcs, "foo").load(.acquire) else 0;
 
     std.log.info("calling foo (first time)...", .{});
     c.foo();
     std.log.info("foo returned", .{});
 
     if (build_options.lazy) {
-        std.log.info("foo at 0x{x}", .{@intFromPtr(solazy.globalFunctionRef(on_solazy_error, &solazy_funcs, "foo").load(.acquire))});
-        std.debug.assert(solazy.globalFunctionRef(on_solazy_error, &solazy_funcs, "foo").load(.acquire) != foo_before);
+        std.log.info("foo at 0x{x}", .{@intFromPtr(solazy.globalFunctionRef(.panic, &solazy_funcs, "foo").load(.acquire))});
+        std.debug.assert(solazy.globalFunctionRef(.panic, &solazy_funcs, "foo").load(.acquire) != foo_before);
     }
 
     std.log.info("calling foo (second time)...", .{});
@@ -62,6 +62,14 @@ pub fn main() !void {
     std.debug.assert(14 == c.args14(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13));
     std.debug.assert(15 == c.args15(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14));
     std.debug.assert(16 == c.args16(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15));
+
+    if (build_options.lazy) {
+        const result = fallback_example.foo();
+        std.debug.assert(result == 0x12345);
+
+        const result2 = fallback_example.not_a_real_symbol();
+        std.debug.assert(result2 == 0x6789a);
+    }
 }
 
 const dynamic = struct {
@@ -127,22 +135,34 @@ const solazy_funcs = [_]solazy.Func{
     .{ .lib = &testso_lib, .name = "args16", .Fn = @TypeOf(dynamic.args16) },
 };
 
-const c = if (!build_options.lazy) dynamic else solazy.namespace(on_solazy_error, &solazy_funcs);
+const c = if (!build_options.lazy) dynamic else solazy.namespace(.panic, &solazy_funcs);
 
-fn on_solazy_error(
+const fallback_example = solazy.namespace(.{ .func = solazy_fallback }, &.{
+    .{ .lib = "does_not_exist", .name = "foo", .Fn = fn () callconv(.c) u32 },
+    .{ .lib = &testso_lib, .name = "not_a_real_symbol", .Fn = fn () callconv(.c) u32 },
+});
+fn lib_fallback() callconv(.c) u32 {
+    return 0x12345;
+}
+fn sym_fallback() callconv(.c) u32 {
+    return 0x6789a;
+}
+fn solazy_fallback(
     kind: solazy.ErrorKind,
     lib: [:0]const u8,
     func: [:0]const u8,
-) noreturn {
+) *const anyopaque {
     switch (kind) {
-        .lib => std.debug.panic(
-            "load library '{s}' failed, error={f}",
-            .{ lib, solazy.libError() },
-        ),
-        .sym => std.debug.panic(
-            "load symbol '{s}' from library '{s}' failed, error={f}",
-            .{ func, lib, solazy.symError() },
-        ),
+        .lib => {
+            std.debug.assert(std.mem.eql(u8, lib, "does_not_exist"));
+            std.debug.assert(std.mem.eql(u8, func, "foo"));
+            return &lib_fallback;
+        },
+        .sym => {
+            std.debug.assert(std.mem.eql(u8, lib, &testso_lib));
+            std.debug.assert(std.mem.eql(u8, func, "not_a_real_symbol"));
+            return &sym_fallback;
+        },
     }
 }
 

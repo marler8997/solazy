@@ -16,27 +16,35 @@ pub fn main() void {
 }
 
 const solazy = @import("solazy");
-const c = solazy.namespace(on_solazy_error, &.{
+const c = solazy.namespace(.panic, &.{
     .{ .lib = "mylib", .name = "foo", .Fn = fn () callconv(.c) void },
     .{ .lib = "mylib", .name = "bar", .Fn = fn (i32) callconv(.c) void },
 });
 
-// choose how to handle missing libraries/symbols
-fn on_solazy_error(
-    kind: solazy.ErrorKind,
-    lib: [:0]const u8,
-    func: [:0]const u8,
-) noreturn {
-    switch (kind) {
-        .lib => std.debug.panic(
-            "load library '{s}' failed, error={f}",
-            .{ lib, solazy.libError() },
-        ),
-        .sym => std.debug.panic(
-            "load symbol '{s}' from library '{s}' failed, error={f}",
-            .{ func, lib, solazy.symError() },
-        ),
-    }
+const std = @import("std");
+```
+
+The example above is configured to panic on missing libraries/functions, but you can also provide your own fallback:
+
+```zig
+pub fn main() void {
+    const result = c.foo();
+    std.debug.assert(result == 0x24118434);
+}
+
+const solazy = @import("solazy");
+const c = solazy.namespace(.{ .func = solazy_fallback }, &.{
+    .{ .lib = "mylib", .name = "foo", .Fn = fn () callconv(.c) u32 },
+});
+
+fn foo_fallback() callconv(.c) u32 {
+    return 0x24118434;
+}
+fn solazy_fallback(kind: solazy.ErrorKind, lib: [:0]const u8, func: [:0]const u8) *const anyopaque {
+    std.debug.assert(kind == .lib);
+    std.debug.assert(std.mem.eql(u8, lib, "mylib"));
+    std.debug.assert(std.mem.eql(u8, func, "foo"));
+    return &foo_fallback;
 }
 
 const std = @import("std");
