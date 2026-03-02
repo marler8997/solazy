@@ -61,6 +61,7 @@ pub fn build(b: *std.Build) void {
         const run = b.addRunArtifact(exe);
         run.step.dependOn(&install.step);
         run.step.dependOn(&install_test_so.step);
+        run.expectExitCode(0);
         b.step("test" ++ suffix, "").dependOn(&run.step);
         test_step.dependOn(&run.step);
     }

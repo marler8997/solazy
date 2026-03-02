@@ -1,17 +1,17 @@
 pub fn main() !void {
     std.log.info("@typeName(@TypeOf(c.foo)) is {s}", .{@typeName(@TypeOf(c.foo))});
     if (build_options.lazy) {
-        std.log.info("foo at 0x{x}", .{@intFromPtr(solazy_vtable.foo.load(.acquire))});
+        std.log.info("foo at 0x{x}", .{@intFromPtr(solazy.functionRef(on_solazy_error, &solazy_funcs, "foo").load(.acquire))});
     }
-    const foo_before = if (build_options.lazy) solazy_vtable.foo.load(.acquire) else 0;
+    const foo_before = if (build_options.lazy) solazy.functionRef(on_solazy_error, &solazy_funcs, "foo").load(.acquire) else 0;
 
     std.log.info("calling foo (first time)...", .{});
     c.foo();
     std.log.info("foo returned", .{});
 
     if (build_options.lazy) {
-        std.log.info("foo at 0x{x}", .{@intFromPtr(solazy_vtable.foo.load(.acquire))});
-        std.debug.assert(solazy_vtable.foo.load(.acquire) != foo_before);
+        std.log.info("foo at 0x{x}", .{@intFromPtr(solazy.functionRef(on_solazy_error, &solazy_funcs, "foo").load(.acquire))});
+        std.debug.assert(solazy.functionRef(on_solazy_error, &solazy_funcs, "foo").load(.acquire) != foo_before);
     }
 
     std.log.info("calling foo (second time)...", .{});
@@ -94,6 +94,7 @@ pub fn nullterm(comptime s: []const u8) [s.len:0]u8 {
 const testso_lib = nullterm(build_options.testso);
 
 const solazy = @import("solazy");
+
 const solazy_funcs = [_]solazy.Func{
     .{ .lib = &testso_lib, .name = "foo", .Fn = @TypeOf(testso.foo) },
     .{ .lib = &testso_lib, .name = "bar", .Fn = @TypeOf(testso.bar) },
@@ -119,10 +120,7 @@ const solazy_funcs = [_]solazy.Func{
     .{ .lib = &testso_lib, .name = "args16", .Fn = @TypeOf(testso.args16) },
 };
 
-// NOTE: you must include the type declaration to break the dependency loop
-pub var solazy_vtable: solazy.Vtable(&solazy_funcs) = solazy.initVtable(&solazy_funcs, @This(), "solazy_vtable", on_solazy_error);
-
-const c = if (build_options.lazy) solazy.wrap(&solazy_funcs, @This(), "solazy_vtable") else testso;
+const c = if (!build_options.lazy) testso else solazy.namespace(on_solazy_error, &solazy_funcs);
 
 fn on_solazy_error(
     kind: solazy.ErrorKind,
