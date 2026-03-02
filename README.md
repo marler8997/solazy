@@ -15,22 +15,11 @@ pub fn main() void {
     c.bar(0);
 }
 
-const c = solazy.wrap(&funcs, @This(), "solazy_vtable");
-
 const solazy = @import("solazy");
-const funcs = [_]solazy.Func{
-    .{ .lib = "mylib", .name = "foo", .Fn = fn void() callconv(.c) },
-    .{ .lib = "mylib", .name = "bar", .Fn = fn void(i32) callconv(.c) },
-};
-
-// public export of our vtable for the solazy module to access
-// NOTE: you must include the type declaration to break the dependency loop
-pub var solazy_vtable: solazy.Vtable(&solazy_funcs) = solazy.initVtable(
-    &funcs,
-    @This(),
-    "solazy_vtable",
-    on_solazy_error,
-);
+const c = solazy.namespace(on_solazy_error, &.{
+    .{ .lib = "mylib", .name = "foo", .Fn = fn () callconv(.c) void },
+    .{ .lib = "mylib", .name = "bar", .Fn = fn (i32) callconv(.c) void },
+});
 
 // choose how to handle missing libraries/symbols
 fn on_solazy_error(
@@ -49,8 +38,11 @@ fn on_solazy_error(
         ),
     }
 }
+
+const std = @import("std");
 ```
 
 # TODO
 
-- ability to customize string passed to dlopen/LoadLibraryA?
+- customize string passed to dlopen/LoadLibraryA at runtime?
+- instead of just "noreturn", specify a return value or possibly fallback function pointer on error

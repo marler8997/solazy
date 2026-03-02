@@ -1,27 +1,34 @@
 //! solazy — Lazy dynamic symbol binding for Zig
 //!
 //! Generates self-patching function pointers for shared library symbols.
-//! On first call, the stub resolves the symbol via dlopen/dlsym, overwrites
-//! the pointer in-place, and tail-calls the resolved function. Subsequent
-//! calls go directly through the patched pointer — no branches, no checks.
+//! On first call, the stub resolves the symbol via dlopen/dlsym (or
+//! LoadLibraryA/GetProcAddress on Windows), overwrites the pointer in-place,
+//! and tail-calls the resolved function. Subsequent calls go directly through
+//! the patched pointer, no branches, no checks.
 
-pub const Func = struct {
-    lib: [:0]const u8,
-    name: [:0]const u8,
-    /// The function type (not a pointer to a function).
-    Fn: type,
-};
+/// Creates a "namespace" to call lazy functions on. However, since zig cannot
+/// reify declarations, it's actually a struct with an inline comptime field
+/// for each function. These comptime functions forward the call to the current
+/// function pointer which is swapped out after the first call to the one loaded from
+/// the library.
+pub fn namespace(
+    comptime on_error: OnError,
+    comptime funcs: []const Func,
+) Namespace(on_error, funcs) {
+    return .{};
+}
 
-pub fn Vtable(comptime funcs: []const Func) type {
+fn Namespace(comptime on_error: OnError, comptime funcs: []const Func) type {
     var fields: [funcs.len]std.builtin.Type.StructField = undefined;
-    for (funcs, &fields) |func, *field| {
-        const T = std.atomic.Value(*const func.Fn);
+    for (funcs, fields[0..funcs.len]) |func, *field| {
+        const InlineFn = ThunkFn(func.Fn, .@"inline");
+        const S = FnStorage(on_error, func);
         field.* = .{
             .name = func.name,
-            .type = T,
-            .default_value_ptr = null,
-            .is_comptime = false,
-            .alignment = @alignOf(T),
+            .type = InlineFn,
+            .default_value_ptr = @ptrCast(makeThunk(func.Fn, .@"inline", S.getReaderPtr)),
+            .is_comptime = true,
+            .alignment = @alignOf(InlineFn),
         };
     }
     return @Type(std.builtin.Type{ .@"struct" = .{
@@ -32,19 +39,47 @@ pub fn Vtable(comptime funcs: []const Func) type {
     } });
 }
 
-pub fn initVtable(
-    comptime funcs: []const Func,
-    comptime vtable_namespace: type,
-    comptime vtable_decl_name: []const u8,
+/// Provides access to the underlying function pointer.
+pub fn functionRef(
     comptime on_error: OnError,
-) Vtable(funcs) {
-    const vtable = &@field(vtable_namespace, vtable_decl_name);
-    var result: Vtable(funcs) = undefined;
-    inline for (funcs) |func| {
-        @field(result, func.name) = .{ .raw = loaderFn(func, vtable, on_error) };
-    }
-    return result;
+    comptime funcs: []const Func,
+    comptime name: []const u8,
+) *std.atomic.Value(*const findFunc(funcs, name).Fn) {
+    return &FnStorage(on_error, findFunc(funcs, name)).ptr;
 }
+
+fn findFunc(comptime funcs: []const Func, comptime name: []const u8) Func {
+    for (funcs) |func| {
+        if (std.mem.eql(u8, func.name, name)) return func;
+    }
+    @compileError("no function named '" ++ name ++ "'");
+}
+
+fn FnStorage(comptime on_error: OnError, comptime func: Func) type {
+    return struct {
+        var ptr: std.atomic.Value(*const func.Fn) = .{
+            .raw = @ptrCast(makeThunk(func.Fn, null, getLoaderPtr)),
+        };
+
+        fn getLoaderPtr() *const func.Fn {
+            const resolved_ptr = resolve(func.lib, func.name, on_error);
+            const typed: *const func.Fn = @ptrCast(@alignCast(resolved_ptr));
+            ptr.store(typed, .release);
+            return typed;
+        }
+
+        fn getReaderPtr() *const func.Fn {
+            return @ptrCast(ptr.load(.acquire));
+        }
+    };
+}
+
+pub const Func = struct {
+    lib: [:0]const u8,
+    name: [:0]const u8,
+    /// The function type (not a pointer to a function).
+    Fn: type,
+};
 
 fn resolve(
     comptime lib: [:0]const u8,
@@ -70,7 +105,11 @@ pub fn cachedDlopen(comptime lib: [:0]const u8) ?LibHandle {
         var handle: std.atomic.Value(?LibHandle) = .{ .raw = null };
     };
     if (S.handle.load(.acquire)) |h| return h;
-    log.debug("dlopen '{s}'", .{lib});
+    const load_func_name = switch (builtin.os.tag) {
+        .windows => "LoadLibrary",
+        else => "dlopen",
+    };
+    log.debug(load_func_name ++ " '{s}'", .{lib});
     if (builtin.os.tag == .windows) {
         const handle = os.LoadLibraryA(lib) orelse return null;
         if (S.handle.cmpxchgStrong(null, handle, .release, .acquire)) |existing| {
@@ -91,16 +130,6 @@ pub fn cachedDlopen(comptime lib: [:0]const u8) ?LibHandle {
     }
 }
 
-fn loaderFn(comptime func: Func, vtable: anytype, on_err: OnError) *const func.Fn {
-    return makeThunk(func.Fn, null, (struct {
-        fn getPtr() *const func.Fn {
-            const ptr = resolve(func.lib, func.name, on_err);
-            @field(vtable, func.name).store(@ptrCast(@alignCast(ptr)), .release);
-            return @ptrCast(@alignCast(ptr));
-        }
-    }).getPtr);
-}
-
 pub const ErrorKind = enum { lib, sym };
 
 // TODO: change this to a vtable, one for each return type
@@ -110,43 +139,6 @@ pub const OnError = fn (
     lib: [:0]const u8,
     func: [:0]const u8,
 ) noreturn;
-
-pub fn wrap(
-    comptime funcs: []const Func,
-    comptime vtable_namespace: type,
-    comptime vtable_decl_name: []const u8,
-) Wrap(funcs, vtable_namespace, vtable_decl_name) {
-    return .{};
-}
-
-pub fn Wrap(
-    comptime funcs: []const Func,
-    comptime vtable_namespace: type,
-    comptime vtable_decl_name: []const u8,
-) type {
-    const vtable = comptime &@field(vtable_namespace, vtable_decl_name);
-    var fields: [funcs.len]std.builtin.Type.StructField = undefined;
-    for (funcs, fields[0..funcs.len]) |func, *field| {
-        const InlineFn = ThunkFn(func.Fn, .@"inline");
-        field.* = .{
-            .name = func.name,
-            .type = InlineFn,
-            .default_value_ptr = @ptrCast(makeThunk(func.Fn, .@"inline", (struct {
-                fn getPtr() *const func.Fn {
-                    return @ptrCast(@field(vtable, func.name).load(.acquire));
-                }
-            }).getPtr)),
-            .is_comptime = true,
-            .alignment = @alignOf(InlineFn),
-        };
-    }
-    return @Type(std.builtin.Type{ .@"struct" = .{
-        .layout = .auto,
-        .fields = &fields,
-        .decls = &.{},
-        .is_tuple = false,
-    } });
-}
 
 fn ThunkFn(comptime Fn: type, comptime cc_override: ?std.builtin.CallingConvention) type {
     const info = @typeInfo(Fn).@"fn";
