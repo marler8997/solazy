@@ -1,11 +1,9 @@
-# solazy — Lazy dynamic symbol binding for Zig
+# solazy 
 
-Self-patching function pointers for shared library symbols.
-On first call, the stub resolves the symbol via dlopen/dlsym (or
-LoadLibraryA/GetProcAddress on windows), overwrites
-the pointer in-place, and tail-calls the resolved function. Subsequent
-calls go directly through the patched pointer, no branches, no checks.
-Functions are lock-free and thread safe.
+Lazy shared libraries.
+
+- self-patching functions pointers
+- thread safe/lock free
 
 # Example Usage
 
@@ -23,6 +21,8 @@ const c = solazy.namespace(.panic, &.{
 
 const std = @import("std");
 ```
+
+
 
 The example above is configured to panic on missing libraries/functions, but you can also provide your own fallback:
 
@@ -53,4 +53,3 @@ const std = @import("std");
 # TODO
 
 - customize string passed to dlopen/LoadLibraryA at runtime?
-- instead of just "noreturn", specify a return value or possibly fallback function pointer on error
