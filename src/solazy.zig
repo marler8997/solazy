@@ -26,7 +26,7 @@ fn Namespace(comptime on_error: OnError, comptime funcs: []const Func) type {
         field.* = .{
             .name = func.name,
             .type = InlineFn,
-            .default_value_ptr = @ptrCast(makeThunk(func.Fn, .@"inline", S.getReaderPtr)),
+            .default_value_ptr = makeThunk(func.Fn, .@"inline", S.getReaderPtr),
             .is_comptime = true,
             .alignment = @alignOf(InlineFn),
         };
@@ -39,13 +39,13 @@ fn Namespace(comptime on_error: OnError, comptime funcs: []const Func) type {
     } });
 }
 
-/// Provides access to the underlying function pointer.
-pub fn functionRef(
+/// Provides access to the underlying global function pointer.
+pub fn globalFunctionRef(
     comptime on_error: OnError,
     comptime funcs: []const Func,
     comptime name: []const u8,
 ) *std.atomic.Value(*const findFunc(funcs, name).Fn) {
-    return &FnStorage(on_error, findFunc(funcs, name)).ptr;
+    return &FnStorage(on_error, findFunc(funcs, name)).global_ptr;
 }
 
 fn findFunc(comptime funcs: []const Func, comptime name: []const u8) Func {
@@ -57,19 +57,19 @@ fn findFunc(comptime funcs: []const Func, comptime name: []const u8) Func {
 
 fn FnStorage(comptime on_error: OnError, comptime func: Func) type {
     return struct {
-        var ptr: std.atomic.Value(*const func.Fn) = .{
-            .raw = @ptrCast(makeThunk(func.Fn, null, getLoaderPtr)),
+        var global_ptr: std.atomic.Value(*const func.Fn) = .{
+            .raw = makeThunk(func.Fn, null, getLoaderPtr),
         };
 
         fn getLoaderPtr() *const func.Fn {
             const resolved_ptr = resolve(func.lib, func.name, on_error);
             const typed: *const func.Fn = @ptrCast(@alignCast(resolved_ptr));
-            ptr.store(typed, .release);
+            global_ptr.store(typed, .release);
             return typed;
         }
 
         fn getReaderPtr() *const func.Fn {
-            return @ptrCast(ptr.load(.acquire));
+            return global_ptr.load(.acquire);
         }
     };
 }
@@ -168,87 +168,87 @@ fn makeThunk(
     return switch (P.len) {
         0 => &(struct {
             fn f() callconv(cc) R {
-                return @call(.auto, @as(*const Fn, @ptrCast(@alignCast(getPtr()))), .{});
+                return @call(.auto, getPtr(), .{});
             }
         }).f,
         1 => &(struct {
             fn f(a0: P[0].type.?) callconv(cc) R {
-                return @call(.auto, @as(*const Fn, @ptrCast(@alignCast(getPtr()))), .{a0});
+                return @call(.auto, getPtr(), .{a0});
             }
         }).f,
         2 => &(struct {
             fn f(a0: P[0].type.?, a1: P[1].type.?) callconv(cc) R {
-                return @call(.auto, @as(*const Fn, @ptrCast(@alignCast(getPtr()))), .{ a0, a1 });
+                return @call(.auto, getPtr(), .{ a0, a1 });
             }
         }).f,
         3 => &(struct {
             fn f(a0: P[0].type.?, a1: P[1].type.?, a2: P[2].type.?) callconv(cc) R {
-                return @call(.auto, @as(*const Fn, @ptrCast(@alignCast(getPtr()))), .{ a0, a1, a2 });
+                return @call(.auto, getPtr(), .{ a0, a1, a2 });
             }
         }).f,
         4 => &(struct {
             fn f(a0: P[0].type.?, a1: P[1].type.?, a2: P[2].type.?, a3: P[3].type.?) callconv(cc) R {
-                return @call(.auto, @as(*const Fn, @ptrCast(@alignCast(getPtr()))), .{ a0, a1, a2, a3 });
+                return @call(.auto, getPtr(), .{ a0, a1, a2, a3 });
             }
         }).f,
         5 => &(struct {
             fn f(a0: P[0].type.?, a1: P[1].type.?, a2: P[2].type.?, a3: P[3].type.?, a4: P[4].type.?) callconv(cc) R {
-                return @call(.auto, @as(*const Fn, @ptrCast(@alignCast(getPtr()))), .{ a0, a1, a2, a3, a4 });
+                return @call(.auto, getPtr(), .{ a0, a1, a2, a3, a4 });
             }
         }).f,
         6 => &(struct {
             fn f(a0: P[0].type.?, a1: P[1].type.?, a2: P[2].type.?, a3: P[3].type.?, a4: P[4].type.?, a5: P[5].type.?) callconv(cc) R {
-                return @call(.auto, @as(*const Fn, @ptrCast(@alignCast(getPtr()))), .{ a0, a1, a2, a3, a4, a5 });
+                return @call(.auto, getPtr(), .{ a0, a1, a2, a3, a4, a5 });
             }
         }).f,
         7 => &(struct {
             fn f(a0: P[0].type.?, a1: P[1].type.?, a2: P[2].type.?, a3: P[3].type.?, a4: P[4].type.?, a5: P[5].type.?, a6: P[6].type.?) callconv(cc) R {
-                return @call(.auto, @as(*const Fn, @ptrCast(@alignCast(getPtr()))), .{ a0, a1, a2, a3, a4, a5, a6 });
+                return @call(.auto, getPtr(), .{ a0, a1, a2, a3, a4, a5, a6 });
             }
         }).f,
         8 => &(struct {
             fn f(a0: P[0].type.?, a1: P[1].type.?, a2: P[2].type.?, a3: P[3].type.?, a4: P[4].type.?, a5: P[5].type.?, a6: P[6].type.?, a7: P[7].type.?) callconv(cc) R {
-                return @call(.auto, @as(*const Fn, @ptrCast(@alignCast(getPtr()))), .{ a0, a1, a2, a3, a4, a5, a6, a7 });
+                return @call(.auto, getPtr(), .{ a0, a1, a2, a3, a4, a5, a6, a7 });
             }
         }).f,
         9 => &(struct {
             fn f(a0: P[0].type.?, a1: P[1].type.?, a2: P[2].type.?, a3: P[3].type.?, a4: P[4].type.?, a5: P[5].type.?, a6: P[6].type.?, a7: P[7].type.?, a8: P[8].type.?) callconv(cc) R {
-                return @call(.auto, @as(*const Fn, @ptrCast(@alignCast(getPtr()))), .{ a0, a1, a2, a3, a4, a5, a6, a7, a8 });
+                return @call(.auto, getPtr(), .{ a0, a1, a2, a3, a4, a5, a6, a7, a8 });
             }
         }).f,
         10 => &(struct {
             fn f(a0: P[0].type.?, a1: P[1].type.?, a2: P[2].type.?, a3: P[3].type.?, a4: P[4].type.?, a5: P[5].type.?, a6: P[6].type.?, a7: P[7].type.?, a8: P[8].type.?, a9: P[9].type.?) callconv(cc) R {
-                return @call(.auto, @as(*const Fn, @ptrCast(@alignCast(getPtr()))), .{ a0, a1, a2, a3, a4, a5, a6, a7, a8, a9 });
+                return @call(.auto, getPtr(), .{ a0, a1, a2, a3, a4, a5, a6, a7, a8, a9 });
             }
         }).f,
         11 => &(struct {
             fn f(a0: P[0].type.?, a1: P[1].type.?, a2: P[2].type.?, a3: P[3].type.?, a4: P[4].type.?, a5: P[5].type.?, a6: P[6].type.?, a7: P[7].type.?, a8: P[8].type.?, a9: P[9].type.?, a10: P[10].type.?) callconv(cc) R {
-                return @call(.auto, @as(*const Fn, @ptrCast(@alignCast(getPtr()))), .{ a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10 });
+                return @call(.auto, getPtr(), .{ a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10 });
             }
         }).f,
         12 => &(struct {
             fn f(a0: P[0].type.?, a1: P[1].type.?, a2: P[2].type.?, a3: P[3].type.?, a4: P[4].type.?, a5: P[5].type.?, a6: P[6].type.?, a7: P[7].type.?, a8: P[8].type.?, a9: P[9].type.?, a10: P[10].type.?, a11: P[11].type.?) callconv(cc) R {
-                return @call(.auto, @as(*const Fn, @ptrCast(@alignCast(getPtr()))), .{ a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11 });
+                return @call(.auto, getPtr(), .{ a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11 });
             }
         }).f,
         13 => &(struct {
             fn f(a0: P[0].type.?, a1: P[1].type.?, a2: P[2].type.?, a3: P[3].type.?, a4: P[4].type.?, a5: P[5].type.?, a6: P[6].type.?, a7: P[7].type.?, a8: P[8].type.?, a9: P[9].type.?, a10: P[10].type.?, a11: P[11].type.?, a12: P[12].type.?) callconv(cc) R {
-                return @call(.auto, @as(*const Fn, @ptrCast(@alignCast(getPtr()))), .{ a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12 });
+                return @call(.auto, getPtr(), .{ a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12 });
             }
         }).f,
         14 => &(struct {
             fn f(a0: P[0].type.?, a1: P[1].type.?, a2: P[2].type.?, a3: P[3].type.?, a4: P[4].type.?, a5: P[5].type.?, a6: P[6].type.?, a7: P[7].type.?, a8: P[8].type.?, a9: P[9].type.?, a10: P[10].type.?, a11: P[11].type.?, a12: P[12].type.?, a13: P[13].type.?) callconv(cc) R {
-                return @call(.auto, @as(*const Fn, @ptrCast(@alignCast(getPtr()))), .{ a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13 });
+                return @call(.auto, getPtr(), .{ a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13 });
             }
         }).f,
         15 => &(struct {
             fn f(a0: P[0].type.?, a1: P[1].type.?, a2: P[2].type.?, a3: P[3].type.?, a4: P[4].type.?, a5: P[5].type.?, a6: P[6].type.?, a7: P[7].type.?, a8: P[8].type.?, a9: P[9].type.?, a10: P[10].type.?, a11: P[11].type.?, a12: P[12].type.?, a13: P[13].type.?, a14: P[14].type.?) callconv(cc) R {
-                return @call(.auto, @as(*const Fn, @ptrCast(@alignCast(getPtr()))), .{ a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14 });
+                return @call(.auto, getPtr(), .{ a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14 });
             }
         }).f,
         16 => &(struct {
             fn f(a0: P[0].type.?, a1: P[1].type.?, a2: P[2].type.?, a3: P[3].type.?, a4: P[4].type.?, a5: P[5].type.?, a6: P[6].type.?, a7: P[7].type.?, a8: P[8].type.?, a9: P[9].type.?, a10: P[10].type.?, a11: P[11].type.?, a12: P[12].type.?, a13: P[13].type.?, a14: P[14].type.?, a15: P[15].type.?) callconv(cc) R {
-                return @call(.auto, @as(*const Fn, @ptrCast(@alignCast(getPtr()))), .{ a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15 });
+                return @call(.auto, getPtr(), .{ a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15 });
             }
         }).f,
         else => @compileError("TODO: support functions with more than 16 parameters for '" ++ @typeName(Fn) ++ "'"),

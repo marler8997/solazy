@@ -1,17 +1,17 @@
 pub fn main() !void {
     std.log.info("@typeName(@TypeOf(c.foo)) is {s}", .{@typeName(@TypeOf(c.foo))});
     if (build_options.lazy) {
-        std.log.info("foo at 0x{x}", .{@intFromPtr(solazy.functionRef(on_solazy_error, &solazy_funcs, "foo").load(.acquire))});
+        std.log.info("foo at 0x{x}", .{@intFromPtr(solazy.globalFunctionRef(on_solazy_error, &solazy_funcs, "foo").load(.acquire))});
     }
-    const foo_before = if (build_options.lazy) solazy.functionRef(on_solazy_error, &solazy_funcs, "foo").load(.acquire) else 0;
+    const foo_before = if (build_options.lazy) solazy.globalFunctionRef(on_solazy_error, &solazy_funcs, "foo").load(.acquire) else 0;
 
     std.log.info("calling foo (first time)...", .{});
     c.foo();
     std.log.info("foo returned", .{});
 
     if (build_options.lazy) {
-        std.log.info("foo at 0x{x}", .{@intFromPtr(solazy.functionRef(on_solazy_error, &solazy_funcs, "foo").load(.acquire))});
-        std.debug.assert(solazy.functionRef(on_solazy_error, &solazy_funcs, "foo").load(.acquire) != foo_before);
+        std.log.info("foo at 0x{x}", .{@intFromPtr(solazy.globalFunctionRef(on_solazy_error, &solazy_funcs, "foo").load(.acquire))});
+        std.debug.assert(solazy.globalFunctionRef(on_solazy_error, &solazy_funcs, "foo").load(.acquire) != foo_before);
     }
 
     std.log.info("calling foo (second time)...", .{});
