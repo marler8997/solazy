@@ -8,7 +8,6 @@ Lazy shared libraries.
 # Example Usage
 
 ```zig
-const std = @import("std");
 const solazy = @import("solazy");
 
 const rl = solazy.namespace(.panic, &.{
