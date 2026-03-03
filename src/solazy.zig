@@ -129,9 +129,9 @@ const LibHandle = switch (builtin.os.tag) {
     else => *anyopaque,
 };
 
-fn LibStorage(comptime lib: [:0]const u8) type {
+pub fn LibStorage(comptime lib: [:0]const u8) type {
     return struct {
-        var global_handle: std.atomic.Value(?LibHandle) = .{ .raw = null };
+        pub var global_handle: std.atomic.Value(?LibHandle) = .{ .raw = null };
 
         pub fn open() ?LibHandle {
             if (global_handle.load(.acquire)) |h| return h;
@@ -301,13 +301,13 @@ pub fn symError() Error {
     };
 }
 
-const os = if (builtin.os.tag == .windows) struct {
+pub const os = if (builtin.os.tag == .windows) struct {
     extern "kernel32" fn LoadLibraryA([*:0]const u8) callconv(.winapi) ?std.os.windows.HMODULE;
 } else struct {
-    extern fn dlopen(path: ?[*:0]const u8, mode: std.c.RTLD) ?*anyopaque;
-    extern fn dlclose(handle: *anyopaque) c_int;
-    extern fn dlsym(handle: ?*anyopaque, symbol: [*:0]const u8) ?*anyopaque;
-    extern fn dlerror() ?[*:0]u8;
+    pub extern fn dlopen(path: ?[*:0]const u8, mode: std.c.RTLD) ?*anyopaque;
+    pub extern fn dlclose(handle: *anyopaque) c_int;
+    pub extern fn dlsym(handle: ?*anyopaque, symbol: [*:0]const u8) ?*anyopaque;
+    pub extern fn dlerror() ?[*:0]u8;
 };
 
 const log = std.log.scoped(.solazy);
