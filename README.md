@@ -47,7 +47,8 @@ const c = solazy.namespace(.{ .func = solazy_fallback }, &.{
 fn foo_fallback() callconv(.c) u32 {
     return 0x24118434;
 }
-fn solazy_fallback(kind: solazy.ErrorKind, lib: [:0]const u8, func: [:0]const u8) *const anyopaque {
+fn solazy_fallback(kind: solazy.ErrorKind, lib: [:0]const u8, func: [:0]const u8, err: solazy.Error) *const anyopaque {
+    _ = err;
     std.debug.assert(kind == .lib);
     std.debug.assert(std.mem.eql(u8, lib, "mylib"));
     std.debug.assert(std.mem.eql(u8, func, "foo"));
@@ -59,4 +60,4 @@ const std = @import("std");
 
 # TODO
 
-- customize string passed to dlopen/LoadLibraryA at runtime?
+- customize string passed to dlopen/LdrLoadDll at runtime?

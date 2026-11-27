@@ -151,7 +151,9 @@ fn solazy_fallback(
     kind: solazy.ErrorKind,
     lib: [:0]const u8,
     func: [:0]const u8,
+    err: solazy.Error,
 ) *const anyopaque {
+    std.log.info("solazy_fallback {t} error={f}", .{ kind, err });
     switch (kind) {
         .lib => {
             std.debug.assert(std.mem.eql(u8, lib, "does_not_exist"));

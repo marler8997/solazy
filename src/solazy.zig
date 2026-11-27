@@ -2,7 +2,7 @@
 //!
 //! Generates self-patching function pointers for shared library symbols.
 //! On first call, the stub resolves the symbol via dlopen/dlsym (or
-//! LoadLibraryA/GetProcAddress on Windows), overwrites the pointer in-place,
+//! LdrLoadDll/LdrGetProcedureAddress on Windows), overwrites the pointer in-place,
 //! and tail-calls the resolved function. Subsequent calls go directly through
 //! the patched pointer, no branches, no checks.
 
@@ -81,15 +81,16 @@ pub fn defaultPanic(
     kind: ErrorKind,
     lib: [:0]const u8,
     func: [:0]const u8,
+    err: Error,
 ) *const anyopaque {
     switch (kind) {
         .lib => std.debug.panic(
             "load library '{s}' failed, error={f}",
-            .{ lib, libError() },
+            .{ lib, err },
         ),
         .sym => std.debug.panic(
             "load symbol '{s}' from library '{s}' failed, error={f}",
-            .{ func, lib, symError() },
+            .{ func, lib, err },
         ),
     }
 }
@@ -101,6 +102,7 @@ pub const OnError = struct {
         kind: ErrorKind,
         lib: [:0]const u8,
         func: [:0]const u8,
+        err: Error,
     ) *const anyopaque,
 
     pub const panic: OnError = .{ .func = defaultPanic };
@@ -111,43 +113,62 @@ fn resolve(
     func: [:0]const u8,
     comptime on_err: OnError,
 ) *const anyopaque {
-    const lib_handle = LibStorage(lib).open() orelse return on_err.func(.lib, lib, func);
-    const load_func_name, const load_func = switch (builtin.os.tag) {
-        .windows => .{ "GetProcAddress", os.GetProcAddress },
-        else => .{ "dlsym", os.dlsym },
-    };
-    log.debug(load_func_name ++ " '{s}'", .{func});
-    return load_func(lib_handle, func) orelse return on_err.func(.sym, lib, func);
+    var err: Error = undefined;
+    const lib_handle = LibStorage(lib).open(&err) orelse return on_err.func(.lib, lib, func, err);
+    switch (builtin.os.tag) {
+        .windows => {
+            log.debug("LdrGetProcedureAddress '{s}'", .{func});
+            var addr: *anyopaque = undefined;
+            return switch (std.os.windows.ntdll.LdrGetProcedureAddress(lib_handle, &.initZ(func), 0, &addr)) {
+                .SUCCESS => addr,
+                else => |status| on_err.func(.sym, lib, func, .{ .data = status }),
+            };
+        },
+        else => {
+            log.debug("dlsym '{s}'", .{func});
+            return os.dlsym(lib_handle, func) orelse on_err.func(.sym, lib, func, .{ .data = os.dlerror() });
+        },
+    }
 }
 
-const LibHandle = switch (builtin.os.tag) {
-    .windows => std.os.windows.HMODULE,
-    else => *anyopaque,
-};
+const LibHandle = *anyopaque;
 
 pub fn LibStorage(comptime lib: [:0]const u8) type {
     return struct {
         pub var global_handle: std.atomic.Value(?LibHandle) = .{ .raw = null };
 
-        pub fn open() ?LibHandle {
+        /// On failure, returns null and sets `err`.
+        pub fn open(err: *Error) ?LibHandle {
             if (global_handle.load(.acquire)) |h| return h;
-            const load_func_name = switch (builtin.os.tag) {
-                .windows => "LoadLibrary",
-                else => "dlopen",
+            const h: LibHandle = switch (builtin.os.tag) {
+                .windows => h: {
+                    log.debug("LdrLoadDll '{s}'", .{lib});
+                    const lib_name: std.os.windows.UNICODE_STRING = comptime .initZ(std.unicode.utf8ToUtf16LeStringLiteral(lib));
+                    var h: LibHandle = undefined;
+                    switch (std.os.windows.ntdll.LdrLoadDll(null, null, &lib_name, &h)) {
+                        .SUCCESS => break :h h,
+                        else => |status| {
+                            err.* = .{ .data = status };
+                            return null;
+                        },
+                    }
+                },
+                else => h: {
+                    log.debug("dlopen '{s}'", .{lib});
+                    break :h os.dlopen(lib, .{ .LAZY = true }) orelse {
+                        err.* = .{ .data = os.dlerror() };
+                        return null;
+                    };
+                },
             };
-            log.debug(load_func_name ++ " '{s}'", .{lib});
-            const h = switch (builtin.os.tag) {
-                .windows => os.LoadLibraryA(lib) orelse return null,
-                else => os.dlopen(lib, .{ .LAZY = true }) orelse return null,
-            };
-            if (global_handle.cmpxchgStrong(null, h, .release, .acquire)) |existing| {
+            if (global_handle.cmpxchgStrong(null, h, .release, .monotonic)) |existing| {
+                // Another thread won the race — drop our redundant refcount.
                 switch (builtin.os.tag) {
                     .windows => {
-                        const r = os.FreeLibrary(h);
-                        std.debug.assert(r != 0);
+                        const status = std.os.windows.ntdll.LdrUnloadDll(h);
+                        std.debug.assert(status == .SUCCESS);
                     },
                     else => {
-                        // Another thread won the race — drop our redundant refcount.
                         const result = os.dlclose(h);
                         std.debug.assert(result == 0);
                     },
@@ -274,36 +295,18 @@ fn makeThunk(
 
 pub const Error = struct {
     data: switch (builtin.os.tag) {
-        .windows => u32,
+        .windows => std.os.windows.NTSTATUS,
         else => ?[*:0]u8,
     },
     pub fn format(e: Error, writer: *std.Io.Writer) error{WriteFailed}!void {
         switch (builtin.os.tag) {
-            .windows => try writer.print("{d}", .{e.data}),
+            .windows => try writer.print("NTSTATUS 0x{X:0>8}", .{@backingInt(e.data)}),
             else => try writer.print("{?s}", .{e.data}),
         }
     }
 };
 
-pub fn libError() Error {
-    return switch (builtin.os.tag) {
-        .windows => .{ .data = @backingInt(std.os.windows.GetLastError()) },
-        else => .{ .data = os.dlerror() },
-    };
-}
-
-pub fn symError() Error {
-    return switch (builtin.os.tag) {
-        .windows => .{ .data = @backingInt(std.os.windows.GetLastError()) },
-        else => .{ .data = os.dlerror() },
-    };
-}
-
-pub const os = if (builtin.os.tag == .windows) struct {
-    pub extern "kernel32" fn LoadLibraryA([*:0]const u8) callconv(.winapi) ?std.os.windows.HMODULE;
-    pub extern "kernel32" fn GetProcAddress(std.os.windows.HMODULE, [*:0]const u8) callconv(.winapi) ?*anyopaque;
-    pub extern "kernel32" fn FreeLibrary(std.os.windows.HMODULE) callconv(.winapi) c_int;
-} else struct {
+pub const os = if (builtin.os.tag == .windows) struct {} else struct {
     pub extern fn dlopen(path: ?[*:0]const u8, mode: std.c.RTLD) ?*anyopaque;
     pub extern fn dlclose(handle: *anyopaque) c_int;
     pub extern fn dlsym(handle: ?*anyopaque, symbol: [*:0]const u8) ?*anyopaque;
