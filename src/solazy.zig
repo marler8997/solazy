@@ -293,6 +293,11 @@ fn makeThunk(
     };
 }
 
+/// The error from a failed library load or symbol lookup, passed to `OnError`.
+/// On posix this points into libc's `dlerror` buffer, which is only valid until
+/// the next `dl*` call on the same thread, so format or copy it before doing
+/// anything that could load a library or resolve a symbol (including calling
+/// another lazy function).
 pub const Error = struct {
     data: switch (builtin.os.tag) {
         .windows => std.os.windows.NTSTATUS,

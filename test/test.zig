@@ -158,15 +158,24 @@ fn solazy_fallback(
         .lib => {
             std.debug.assert(std.mem.eql(u8, lib, "does_not_exist"));
             std.debug.assert(std.mem.eql(u8, func, "foo"));
+            switch (builtin.os.tag) {
+                .windows => std.debug.assert(err.data == .DLL_NOT_FOUND),
+                else => std.debug.assert(err.data != null),
+            }
             return &lib_fallback;
         },
         .sym => {
             std.debug.assert(std.mem.eql(u8, lib, &testso_lib));
             std.debug.assert(std.mem.eql(u8, func, "not_a_real_symbol"));
+            switch (builtin.os.tag) {
+                .windows => std.debug.assert(err.data == .ENTRYPOINT_NOT_FOUND or err.data == .PROCEDURE_NOT_FOUND),
+                else => std.debug.assert(err.data != null),
+            }
             return &sym_fallback;
         },
     }
 }
 
 const build_options = @import("build_options");
+const builtin = @import("builtin");
 const std = @import("std");
