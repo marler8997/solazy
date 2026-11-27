@@ -1,41 +1,25 @@
 name: ci
 on: [pull_request, workflow_dispatch]
 jobs:
-  build:
+  test:
     strategy:
       matrix:
-        include:
-          # Windows builds
-          - os: windows-latest
-            arch: aarch64
-          - os: windows-latest
-            arch: x86
-          - os: windows-latest
-            arch: x86_64
-          # macOS builds
-          - os: macos-latest
-            arch: aarch64
-          - os: macos-latest
-            arch: x86_64
-          # Linux builds
-          - os: ubuntu-latest
-            arch: aarch64
-          - os: ubuntu-latest
-            arch: armv7a
-          - os: ubuntu-latest
-            arch: powerpc64le
-          - os: ubuntu-latest
-            arch: riscv64
-          - os: ubuntu-latest
-            arch: s390x
-          - os: ubuntu-latest
-            arch: x86
-          - os: ubuntu-latest
-            arch: x86_64
+        os:
+          - windows-latest
+          - windows-11-arm
+          - macos-15 # TODO: change back to macos-latest (and remove xcode step) once we upgrade to zig 0.17.0
+          - ubuntu-latest
+          - ubuntu-24.04-arm
       fail-fast: false
     runs-on: ${{matrix.os}}
     steps:
-      - uses: actions/checkout@v4
-      - name: Install zig
-        uses: mlugg/setup-zig@v2
+      - uses: actions/checkout@v7
+      - if: ${{ startsWith(matrix.os, 'macos') }}
+        name: select xcode
+        # zig < 0.17 can't link against the newer Xcode SDKs (undefined libSystem symbols)
+        run: |
+          ls -d /Applications/Xcode*
+          sudo xcode-select -s /Applications/Xcode_16.4.app
+          xcrun --show-sdk-path
+      - uses: marler8997/setup-anyzig@master
       - run: zig build test --summary all
