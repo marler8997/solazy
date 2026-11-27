@@ -19,24 +19,20 @@ pub fn namespace(
 }
 
 fn Namespace(comptime on_error: OnError, comptime funcs: []const Func) type {
-    var fields: [funcs.len]std.builtin.Type.StructField = undefined;
-    for (funcs, fields[0..funcs.len]) |func, *field| {
+    var names: [funcs.len][]const u8 = undefined;
+    var types: [funcs.len]type = undefined;
+    var attrs: [funcs.len]std.lang.Type.Struct.FieldAttributes = undefined;
+    for (funcs, &names, &types, &attrs) |func, *name, *T, *attr| {
         const InlineFn = ThunkFn(func.Fn, .@"inline");
         const S = FnStorage(on_error, func);
-        field.* = .{
-            .name = func.name,
-            .type = InlineFn,
+        name.* = func.name;
+        T.* = InlineFn;
+        attr.* = .{
+            .@"comptime" = true,
             .default_value_ptr = makeThunk(func.Fn, .@"inline", S.getReaderPtr),
-            .is_comptime = true,
-            .alignment = @alignOf(InlineFn),
         };
     }
-    return @Type(std.builtin.Type{ .@"struct" = .{
-        .layout = .auto,
-        .fields = &fields,
-        .decls = &.{},
-        .is_tuple = false,
-    } });
+    return @Struct(.auto, null, &names, &types, &attrs);
 }
 
 /// Provides access to the underlying global function pointer.
@@ -117,7 +113,7 @@ fn resolve(
 ) *const anyopaque {
     const lib_handle = LibStorage(lib).open() orelse return on_err.func(.lib, lib, func);
     const load_func_name, const load_func = switch (builtin.os.tag) {
-        .windows => .{ "GetProcAddress", std.os.windows.kernel32.GetProcAddress },
+        .windows => .{ "GetProcAddress", os.GetProcAddress },
         else => .{ "dlsym", os.dlsym },
     };
     log.debug(load_func_name ++ " '{s}'", .{func});
@@ -147,7 +143,7 @@ pub fn LibStorage(comptime lib: [:0]const u8) type {
             if (global_handle.cmpxchgStrong(null, h, .release, .acquire)) |existing| {
                 switch (builtin.os.tag) {
                     .windows => {
-                        const r = std.os.windows.kernel32.FreeLibrary(h);
+                        const r = os.FreeLibrary(h);
                         std.debug.assert(r != 0);
                     },
                     else => {
@@ -163,27 +159,29 @@ pub fn LibStorage(comptime lib: [:0]const u8) type {
     };
 }
 
-fn ThunkFn(comptime Fn: type, comptime cc_override: ?std.builtin.CallingConvention) type {
+fn ThunkFn(comptime Fn: type, comptime cc_override: ?std.lang.CallingConvention) type {
     const info = @typeInfo(Fn).@"fn";
-    return @Type(std.builtin.Type{ .@"fn" = .{
-        .calling_convention = cc_override orelse info.calling_convention,
-        .is_generic = false,
-        .is_var_args = false,
-        .return_type = info.return_type,
-        .params = info.params,
-    } });
+    if (info.is_generic) @compileError("generic functions not supported: '" ++ @typeName(Fn) ++ "'");
+    var param_types: [info.param_types.len]type = undefined;
+    for (info.param_types, &param_types) |opt_T, *T| T.* = opt_T.?;
+    return @Fn(
+        &param_types,
+        info.param_attrs[0..info.param_types.len],
+        info.return_type.?,
+        .{ .@"callconv" = cc_override orelse info.attrs.@"callconv" },
+    );
 }
 
 fn makeThunk(
     comptime Fn: type,
-    comptime cc_override: ?std.builtin.CallingConvention,
+    comptime cc_override: ?std.lang.CallingConvention,
     comptime getPtr: fn () *const Fn,
 ) *const ThunkFn(Fn, cc_override) {
     const info = @typeInfo(Fn).@"fn";
-    const P = info.params;
+    const P = info.param_types;
     const R = info.return_type orelse
         @compileError("generic return type not supported for '" ++ @typeName(Fn) ++ "'");
-    const cc = cc_override orelse info.calling_convention;
+    const cc = cc_override orelse info.attrs.@"callconv";
     return switch (P.len) {
         0 => &(struct {
             fn f() callconv(cc) R {
@@ -191,82 +189,82 @@ fn makeThunk(
             }
         }).f,
         1 => &(struct {
-            fn f(a0: P[0].type.?) callconv(cc) R {
+            fn f(a0: P[0].?) callconv(cc) R {
                 return @call(.auto, getPtr(), .{a0});
             }
         }).f,
         2 => &(struct {
-            fn f(a0: P[0].type.?, a1: P[1].type.?) callconv(cc) R {
+            fn f(a0: P[0].?, a1: P[1].?) callconv(cc) R {
                 return @call(.auto, getPtr(), .{ a0, a1 });
             }
         }).f,
         3 => &(struct {
-            fn f(a0: P[0].type.?, a1: P[1].type.?, a2: P[2].type.?) callconv(cc) R {
+            fn f(a0: P[0].?, a1: P[1].?, a2: P[2].?) callconv(cc) R {
                 return @call(.auto, getPtr(), .{ a0, a1, a2 });
             }
         }).f,
         4 => &(struct {
-            fn f(a0: P[0].type.?, a1: P[1].type.?, a2: P[2].type.?, a3: P[3].type.?) callconv(cc) R {
+            fn f(a0: P[0].?, a1: P[1].?, a2: P[2].?, a3: P[3].?) callconv(cc) R {
                 return @call(.auto, getPtr(), .{ a0, a1, a2, a3 });
             }
         }).f,
         5 => &(struct {
-            fn f(a0: P[0].type.?, a1: P[1].type.?, a2: P[2].type.?, a3: P[3].type.?, a4: P[4].type.?) callconv(cc) R {
+            fn f(a0: P[0].?, a1: P[1].?, a2: P[2].?, a3: P[3].?, a4: P[4].?) callconv(cc) R {
                 return @call(.auto, getPtr(), .{ a0, a1, a2, a3, a4 });
             }
         }).f,
         6 => &(struct {
-            fn f(a0: P[0].type.?, a1: P[1].type.?, a2: P[2].type.?, a3: P[3].type.?, a4: P[4].type.?, a5: P[5].type.?) callconv(cc) R {
+            fn f(a0: P[0].?, a1: P[1].?, a2: P[2].?, a3: P[3].?, a4: P[4].?, a5: P[5].?) callconv(cc) R {
                 return @call(.auto, getPtr(), .{ a0, a1, a2, a3, a4, a5 });
             }
         }).f,
         7 => &(struct {
-            fn f(a0: P[0].type.?, a1: P[1].type.?, a2: P[2].type.?, a3: P[3].type.?, a4: P[4].type.?, a5: P[5].type.?, a6: P[6].type.?) callconv(cc) R {
+            fn f(a0: P[0].?, a1: P[1].?, a2: P[2].?, a3: P[3].?, a4: P[4].?, a5: P[5].?, a6: P[6].?) callconv(cc) R {
                 return @call(.auto, getPtr(), .{ a0, a1, a2, a3, a4, a5, a6 });
             }
         }).f,
         8 => &(struct {
-            fn f(a0: P[0].type.?, a1: P[1].type.?, a2: P[2].type.?, a3: P[3].type.?, a4: P[4].type.?, a5: P[5].type.?, a6: P[6].type.?, a7: P[7].type.?) callconv(cc) R {
+            fn f(a0: P[0].?, a1: P[1].?, a2: P[2].?, a3: P[3].?, a4: P[4].?, a5: P[5].?, a6: P[6].?, a7: P[7].?) callconv(cc) R {
                 return @call(.auto, getPtr(), .{ a0, a1, a2, a3, a4, a5, a6, a7 });
             }
         }).f,
         9 => &(struct {
-            fn f(a0: P[0].type.?, a1: P[1].type.?, a2: P[2].type.?, a3: P[3].type.?, a4: P[4].type.?, a5: P[5].type.?, a6: P[6].type.?, a7: P[7].type.?, a8: P[8].type.?) callconv(cc) R {
+            fn f(a0: P[0].?, a1: P[1].?, a2: P[2].?, a3: P[3].?, a4: P[4].?, a5: P[5].?, a6: P[6].?, a7: P[7].?, a8: P[8].?) callconv(cc) R {
                 return @call(.auto, getPtr(), .{ a0, a1, a2, a3, a4, a5, a6, a7, a8 });
             }
         }).f,
         10 => &(struct {
-            fn f(a0: P[0].type.?, a1: P[1].type.?, a2: P[2].type.?, a3: P[3].type.?, a4: P[4].type.?, a5: P[5].type.?, a6: P[6].type.?, a7: P[7].type.?, a8: P[8].type.?, a9: P[9].type.?) callconv(cc) R {
+            fn f(a0: P[0].?, a1: P[1].?, a2: P[2].?, a3: P[3].?, a4: P[4].?, a5: P[5].?, a6: P[6].?, a7: P[7].?, a8: P[8].?, a9: P[9].?) callconv(cc) R {
                 return @call(.auto, getPtr(), .{ a0, a1, a2, a3, a4, a5, a6, a7, a8, a9 });
             }
         }).f,
         11 => &(struct {
-            fn f(a0: P[0].type.?, a1: P[1].type.?, a2: P[2].type.?, a3: P[3].type.?, a4: P[4].type.?, a5: P[5].type.?, a6: P[6].type.?, a7: P[7].type.?, a8: P[8].type.?, a9: P[9].type.?, a10: P[10].type.?) callconv(cc) R {
+            fn f(a0: P[0].?, a1: P[1].?, a2: P[2].?, a3: P[3].?, a4: P[4].?, a5: P[5].?, a6: P[6].?, a7: P[7].?, a8: P[8].?, a9: P[9].?, a10: P[10].?) callconv(cc) R {
                 return @call(.auto, getPtr(), .{ a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10 });
             }
         }).f,
         12 => &(struct {
-            fn f(a0: P[0].type.?, a1: P[1].type.?, a2: P[2].type.?, a3: P[3].type.?, a4: P[4].type.?, a5: P[5].type.?, a6: P[6].type.?, a7: P[7].type.?, a8: P[8].type.?, a9: P[9].type.?, a10: P[10].type.?, a11: P[11].type.?) callconv(cc) R {
+            fn f(a0: P[0].?, a1: P[1].?, a2: P[2].?, a3: P[3].?, a4: P[4].?, a5: P[5].?, a6: P[6].?, a7: P[7].?, a8: P[8].?, a9: P[9].?, a10: P[10].?, a11: P[11].?) callconv(cc) R {
                 return @call(.auto, getPtr(), .{ a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11 });
             }
         }).f,
         13 => &(struct {
-            fn f(a0: P[0].type.?, a1: P[1].type.?, a2: P[2].type.?, a3: P[3].type.?, a4: P[4].type.?, a5: P[5].type.?, a6: P[6].type.?, a7: P[7].type.?, a8: P[8].type.?, a9: P[9].type.?, a10: P[10].type.?, a11: P[11].type.?, a12: P[12].type.?) callconv(cc) R {
+            fn f(a0: P[0].?, a1: P[1].?, a2: P[2].?, a3: P[3].?, a4: P[4].?, a5: P[5].?, a6: P[6].?, a7: P[7].?, a8: P[8].?, a9: P[9].?, a10: P[10].?, a11: P[11].?, a12: P[12].?) callconv(cc) R {
                 return @call(.auto, getPtr(), .{ a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12 });
             }
         }).f,
         14 => &(struct {
-            fn f(a0: P[0].type.?, a1: P[1].type.?, a2: P[2].type.?, a3: P[3].type.?, a4: P[4].type.?, a5: P[5].type.?, a6: P[6].type.?, a7: P[7].type.?, a8: P[8].type.?, a9: P[9].type.?, a10: P[10].type.?, a11: P[11].type.?, a12: P[12].type.?, a13: P[13].type.?) callconv(cc) R {
+            fn f(a0: P[0].?, a1: P[1].?, a2: P[2].?, a3: P[3].?, a4: P[4].?, a5: P[5].?, a6: P[6].?, a7: P[7].?, a8: P[8].?, a9: P[9].?, a10: P[10].?, a11: P[11].?, a12: P[12].?, a13: P[13].?) callconv(cc) R {
                 return @call(.auto, getPtr(), .{ a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13 });
             }
         }).f,
         15 => &(struct {
-            fn f(a0: P[0].type.?, a1: P[1].type.?, a2: P[2].type.?, a3: P[3].type.?, a4: P[4].type.?, a5: P[5].type.?, a6: P[6].type.?, a7: P[7].type.?, a8: P[8].type.?, a9: P[9].type.?, a10: P[10].type.?, a11: P[11].type.?, a12: P[12].type.?, a13: P[13].type.?, a14: P[14].type.?) callconv(cc) R {
+            fn f(a0: P[0].?, a1: P[1].?, a2: P[2].?, a3: P[3].?, a4: P[4].?, a5: P[5].?, a6: P[6].?, a7: P[7].?, a8: P[8].?, a9: P[9].?, a10: P[10].?, a11: P[11].?, a12: P[12].?, a13: P[13].?, a14: P[14].?) callconv(cc) R {
                 return @call(.auto, getPtr(), .{ a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14 });
             }
         }).f,
         16 => &(struct {
-            fn f(a0: P[0].type.?, a1: P[1].type.?, a2: P[2].type.?, a3: P[3].type.?, a4: P[4].type.?, a5: P[5].type.?, a6: P[6].type.?, a7: P[7].type.?, a8: P[8].type.?, a9: P[9].type.?, a10: P[10].type.?, a11: P[11].type.?, a12: P[12].type.?, a13: P[13].type.?, a14: P[14].type.?, a15: P[15].type.?) callconv(cc) R {
+            fn f(a0: P[0].?, a1: P[1].?, a2: P[2].?, a3: P[3].?, a4: P[4].?, a5: P[5].?, a6: P[6].?, a7: P[7].?, a8: P[8].?, a9: P[9].?, a10: P[10].?, a11: P[11].?, a12: P[12].?, a13: P[13].?, a14: P[14].?, a15: P[15].?) callconv(cc) R {
                 return @call(.auto, getPtr(), .{ a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15 });
             }
         }).f,
@@ -289,20 +287,22 @@ pub const Error = struct {
 
 pub fn libError() Error {
     return switch (builtin.os.tag) {
-        .windows => .{ .data = @intFromEnum(std.os.windows.GetLastError()) },
+        .windows => .{ .data = @backingInt(std.os.windows.GetLastError()) },
         else => .{ .data = os.dlerror() },
     };
 }
 
 pub fn symError() Error {
     return switch (builtin.os.tag) {
-        .windows => .{ .data = @intFromEnum(std.os.windows.GetLastError()) },
+        .windows => .{ .data = @backingInt(std.os.windows.GetLastError()) },
         else => .{ .data = os.dlerror() },
     };
 }
 
 pub const os = if (builtin.os.tag == .windows) struct {
-    extern "kernel32" fn LoadLibraryA([*:0]const u8) callconv(.winapi) ?std.os.windows.HMODULE;
+    pub extern "kernel32" fn LoadLibraryA([*:0]const u8) callconv(.winapi) ?std.os.windows.HMODULE;
+    pub extern "kernel32" fn GetProcAddress(std.os.windows.HMODULE, [*:0]const u8) callconv(.winapi) ?*anyopaque;
+    pub extern "kernel32" fn FreeLibrary(std.os.windows.HMODULE) callconv(.winapi) c_int;
 } else struct {
     pub extern fn dlopen(path: ?[*:0]const u8, mode: std.c.RTLD) ?*anyopaque;
     pub extern fn dlclose(handle: *anyopaque) c_int;

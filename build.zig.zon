@@ -2,7 +2,8 @@
     .name = .solazy,
     .fingerprint = 0xe3fa8f1899e5b615,
     .version = "0.0.1",
-    .minimum_zig_version = "0.15.2",
+    .minimum_zig_version = "0.17.0",
+    .zig_version = "0.17.1",
     .paths = .{
         "build.zig",
         "build.zig.zon",

@@ -61,14 +61,14 @@ pub fn build(b: *std.Build) void {
             exe.root_module.addImport("solazy", solazy);
             switch (target.result.os.tag) {
                 .windows => {},
-                else => exe.linkSystemLibrary("dl"),
+                else => exe.root_module.linkSystemLibrary("dl", .{}),
             }
         }
-        exe.linkLibrary(test_so);
-        exe.linkLibrary(test2_so);
+        exe.root_module.linkLibrary(test_so);
+        exe.root_module.linkLibrary(test2_so);
         if (target.result.os.tag == .windows) {
-            exe.addLibraryPath(test_so.getEmittedBinDirectory());
-            exe.addLibraryPath(test2_so.getEmittedBinDirectory());
+            exe.root_module.addLibraryPath(test_so.getEmittedBinDirectory());
+            exe.root_module.addLibraryPath(test2_so.getEmittedBinDirectory());
         }
 
         const install = b.addInstallArtifact(exe, .{});
@@ -99,7 +99,7 @@ pub fn build(b: *std.Build) void {
             exe.root_module.addImport("solazy", solazy);
             switch (target.result.os.tag) {
                 .windows => {},
-                else => exe.linkSystemLibrary("dl"),
+                else => exe.root_module.linkSystemLibrary("dl", .{}),
             }
             // Example with fallback (.func) are self-contained and can run.
             // Others (e.g. .panic with a nonexistent lib) only verify compilation.
